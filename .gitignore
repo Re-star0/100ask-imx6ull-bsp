@@ -1,0 +1,67 @@
+# ===== 通用构建产物 / 临时文件 =====
+
+# 编译中间产物
+*.o
+*.ko
+*.cmd
+*.mod
+*.mod.*
+*.symvers
+*.order
+Module.symvers
+modules.order
+
+# 临时 / 备份文件
+*.tmp
+*.bak
+*.swp
+*.swo
+*~
+
+# 构建目录（Buildroot 的 output/ 等）
+build/
+**/build/
+output/
+**/output/
+
+# Buildroot 下载缓存（约 2 GB，不入库；位置与说明见 rootfs/sources/README.md）
+rootfs/sources/dl/
+**/dl/
+
+# 解压后的 Buildroot 工作树（可由 tar.gz 重建）
+rootfs/sources/buildroot-2020.02.12/
+
+# 常见镜像产物
+*.img
+*.ext2
+*.ext3
+*.ext4
+*.tar.gz
+# 例外：Buildroot 源码包是本项目唯一的源码来源，必须保留
+!rootfs/sources/*.tar.gz
+
+# U-Boot 构建产物
+u-boot*.imx
+u-boot*.bin
+u-boot.dtb
+
+# 解压后的 U-Boot 工作树（可由 sources/ 下的 zip 重建）
+uboot/sources/uboot-imx-imx_v2017.03_4.9.88_2.0.0_ga/
+
+# 个人笔记（仅本地留存，不纳入版本管理）
+uboot/docs/U-Boot移植.docx
+
+# ===== 操作系统 / 编辑器噪音 =====
+Thumbs.db
+ehthumbs.db
+desktop.ini
+.DS_Store
+$RECYCLE.BIN/
+
+# 编辑器 / IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# 日志
+*.log

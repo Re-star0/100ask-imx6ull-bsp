@@ -1,0 +1,33 @@
+# ===== 换行与文本处理 =====
+# 本项目目标平台是 Linux（U-Boot / Kernel / Buildroot），文本文件一律以 LF 入库与检出。
+# 这样 Windows 上编辑也不会把 CRLF 带进历史，避免"整个文件都变了"的噪音 diff。
+* text=auto eol=lf
+
+# 文档与脚本显式声明为文本
+*.md      text eol=lf
+*.sh      text eol=lf
+*.dts     text eol=lf
+*.dtsi    text eol=lf
+*.defconfig text eol=lf
+*.c       text eol=lf
+*.h       text eol=lf
+Makefile  text eol=lf
+
+# ===== 二进制文件 =====
+# 不做换行转换、不做行级 diff / 合并
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.gif     binary
+*.zip     binary
+*.gz      binary
+*.bz2     binary
+*.xz      binary
+*.tar     binary
+*.docx    binary
+*.pdf     binary
+*.dtb     binary
+*.imx     binary
+*.img     binary
+*.ext2    binary
+*.ext4    binary
