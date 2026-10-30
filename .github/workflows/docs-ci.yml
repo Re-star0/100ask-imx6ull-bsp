@@ -1,0 +1,36 @@
+name: Docs CI
+
+# 只在文档或本工作流变化时触发，避免无关改动消耗额度
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**/*.md'
+      - '.github/**'
+  pull_request:
+    paths:
+      - '**/*.md'
+      - '.github/**'
+  workflow_dispatch: # 允许在 Actions 页面手动运行
+
+permissions:
+  contents: read # 只需要读仓库，遵循最小权限
+
+jobs:
+  links:
+    name: Markdown 链接检查
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+      - name: 校验仓库内相对链接
+        run: python3 .github/scripts/check_docs.py links
+
+  stats:
+    name: 文档行数统计
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+      - name: 统计 Markdown 行数
+        run: python3 .github/scripts/check_docs.py stats

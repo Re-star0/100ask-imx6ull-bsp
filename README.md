@@ -1,5 +1,7 @@
 # i.MX6ULL BSP 驱动项目
 
+[![Docs CI](https://github.com/Re-star0/100ask-imx6ull-bsp/actions/workflows/docs-ci.yml/badge.svg)](https://github.com/Re-star0/100ask-imx6ull-bsp/actions/workflows/docs-ci.yml)
+
 基于 NXP i.MX6ULL（Cortex-A7）的嵌入式 Linux BSP 学习与移植项目，硬件平台为**百问网 100ASK IMX6ULL Pro**。
 
 项目按 BSP 三层组织：**U-Boot 移植 → 内核移植 → 根文件系统构建**，每层独立成目录，文档与产物就近存放。
