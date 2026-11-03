@@ -6,7 +6,7 @@
 > 对应模块：`rootfs/`（本仓库），上游参考：<https://github.com/illusOwo-ff/i.MX6ULL-bsp-driver-project>
 > 前置条件：U-Boot 与 Kernel 已自行移植完成（见本仓库 `uboot/`、`kernel/`）
 
-本文记录从零到"板子上跑起来"的完整 rootfs 构建流程，按 **做什么 → 为什么 → 怎么做 → 怎么验证** 展开，最后附完整的踩坑记录。文中的配置项名称均对应 `make menuconfig` 中的实际菜单文字，方便对照操作。
+这份记录，是从一个空目录一路干到"板子上跑起来"的完整过程。全文按"做什么、为什么、怎么做、怎么验证"展开，末尾照例是踩坑记录。文里的配置项全按 `make menuconfig` 里实际显示的菜单文字写，对着屏幕找就行。
 
 ---
 
@@ -14,12 +14,12 @@
 
 ### 0.1 这份文档解决什么问题
 
-参考仓库的 `rootfs_project_record.md` 是一份"结果记录"，把多个环节串在一起，第一次照着做容易出现两类问题：
+参考仓库里的 `rootfs_project_record.md` 更像一份"结果记录"，几个环节串成一条线。头一回照着做，多半会碰上两种难受：
 
-1. **不知道每一步为什么这么做**，换个环境就不会了；
-2. **不知道哪一步出错该往哪查**，报错信息与配置项对不上号。
+1. **不知道每一步为什么这么做**，换个环境立马抓瞎；
+2. **出了错不知道往哪查**，报错信息跟配置项根本对不上号。
 
-所以本文按"阶段"拆开，每一步都写清楚目的和验证方法，并把实际踩到的坑单独成章（第 7 章）。
+所以本文按"阶段"拆开，每一步都写清楚目的和验证方法，实际踩到的坑单独拎出来，放在第 7 章。
 
 ### 0.2 适用边界
 
@@ -29,7 +29,7 @@
 
 ### 0.3 环境与路径约定
 
-下表中的值是本项目的实际取值；如果你换了机器或目录，请整体替换。
+表里是本项目的真实取值。你换了机器或者目录，就整表替换，别只改一半。
 
 | 变量 | 本项目取值 | 说明 |
 |------|-----------|------|
@@ -43,7 +43,7 @@
 | `KERNEL_DIR` | `~/my-linux-imx-imx_4.9.88.2.0` | 内核源码 |
 | `UBOOT_DIR` | `~/my-uboot-v2017.03-4.9.88` | U-Boot 源码 |
 
-> 参考仓库作者的环境是 `GCC 6.2.1`（`/home/book/100ask_imx6ull-sdk/...`）、`192.168.5.x` 网段。**工具链版本差异会直接导致编译报错**，本项目用 4.9.4，对应处理见 7.3。
+> 参考仓库作者的环境是 `GCC 6.2.1`（`/home/book/100ask_imx6ull-sdk/...`），网段 `192.168.5.x`。**工具链版本不一样，编译阶段就会给你颜色看**；本项目用的是 4.9.4，怎么绕过去的见 7.3。
 >
 > 表中 `<仓库>` 指本工作区（`E:\100ask-imx6ull-bsp`）；`rootfs/sources/` 下存放 Buildroot 源码包与 `dl/` 缓存，详见 `rootfs/sources/README.md`。
 
@@ -79,11 +79,11 @@
 └────────────────────────────────────────────────────────────────────┘
 ```
 
-**为什么是这个顺序？**
+**为什么非得按这个顺序来？**
 
-1. **先 NFS 后 eMMC**：NFS 的 rootfs 在主机上，改一个文件板子重启就生效；eMMC 要每次 `dd` 重写，慢且伤寿命。调试阶段的迭代次数远多于最终部署。
-2. **先编译一个"能跑的最小系统"再加软件包**：Buildroot 配置错误时症状多样（缺库、无 init、网络不通），先让最小系统启动，才能把 Buildroot 的问题和驱动/内核的问题分开。
-3. **最后才动 U-Boot 启动参数**：U-Boot 参数改错会导致"连日志都看不到"，放到最后、系统已验证可用时再改，出问题容易回退。
+1. **先 NFS，后 eMMC**：NFS 的 rootfs 就放在主机上，改个文件、板子重启就生效；eMMC 每次都得 `dd` 重写，慢不说，还伤寿命。调试阶段来回改的次数，可比最终部署多得多。
+2. **先编个"能跑的最小系统"，再往里加包**：Buildroot 配错的症状五花八门——缺库、没 init、网络不通，看着都像别处的毛病。最小系统先跑起来，才能把 Buildroot 的锅和驱动、内核的锅分开。
+3. **U-Boot 的启动参数留到最后动**：这玩意儿改错，你会连日志都看不见。等系统验证好用了再改，真出问题退回去也容易。
 
 ---
 
@@ -97,7 +97,7 @@
 | Kernel | 已移植 | 4.9.88，`my_imx_emmc_defconfig`，设备树 `imx6ull-my14x14-emmc.dts` |
 | 启动方式 | 可用 | SD 卡 U-Boot + TFTP 内核 + eMMC 原厂 rootfs |
 
-**为什么先确认**：Buildroot 只负责"用户态"，U-Boot 和内核的可用性是它的前提。如果内核本身就起不来，后面所有 rootfs 问题都会被误判。
+**为什么先确认这些**：Buildroot 只管用户态，U-Boot 和内核能不能用，是它的前提。内核本身就起不来的话，后面所有 rootfs 的问题都会被算错账。
 
 ### 2.2 确认工具链（决定后续一切）
 
@@ -109,7 +109,7 @@ $TOOLCHAIN_DIR/bin/arm-linux-gnueabihf-gcc -v
 # gcc version 4.9.4 (Linaro GCC 4.9-2017.01)
 ```
 
-再读内核头文件版本（Buildroot 要填 `External toolchain kernel headers series`）：
+顺手把内核头文件版本也读出来，Buildroot 里 `External toolchain kernel headers series` 那一项要填它：
 
 ```bash
 grep -m1 LINUX_VERSION_CODE \
@@ -117,19 +117,19 @@ grep -m1 LINUX_VERSION_CODE \
 # #define LINUX_VERSION_CODE 263680   → 0x040600 → 4.6.0
 ```
 
-换算：`(code >> 16).(code >> 8 & 0xFF).(code & 0xFF)`。
+换算公式：`(code >> 16).(code >> 8 & 0xFF).(code & 0xFF)`。
 
-**为什么这一步最关键**：Buildroot 产出的 rootfs 里是 glibc 动态库，必须和内核、以及内核编译时用的工具链**同源**。工具链不一致的典型后果是启动到最后一步报：
+**为什么说这步最关键**：Buildroot 出来的 rootfs 里装的是 glibc 动态库，它得跟内核、跟编内核那套工具链**同源**。工具链一乱，典型的下场是启动到最后一步，屏幕上一行大字：
 
 ```
 Kernel panic - not syncing: No working init found.
 ```
 
-此时内核、rootfs 看起来都"编译成功"，但根本原因是动态库/ABI 不匹配。**铁律：U-Boot、Kernel、rootfs 用同一套工具链。**
+到这儿，内核和 rootfs 看着都"编译成功"了，根子却在动态库和 ABI 对不上。**记住一条铁律：U-Boot、Kernel、rootfs 用同一套工具链。**
 
 ### 2.3 补内核配置
 
-rootfs 里的调试工具依赖一些内核选项，移植内核时可能没开。检查 `my_imx_emmc_defconfig`：
+rootfs 里那些调试工具，背后都有内核选项撑着，移植内核的时候未必开了。翻开 `my_imx_emmc_defconfig` 对一遍：
 
 | 配置项 | 作用 | 本项目状态 |
 |--------|------|-----------|
@@ -143,9 +143,9 @@ rootfs 里的调试工具依赖一些内核选项，移植内核时可能没开�
 | `CONFIG_NFS_FS` + `CONFIG_ROOT_NFS` | NFS 根文件系统启动 | 已开 |
 | `CONFIG_FUNCTION_TRACER` 等 Ftrace 项 | `trace-cmd` 的用户态追踪 | **被显式关闭，需要打开** |
 
-**为什么**：`# CONFIG_FTRACE is not set` 会让 `trace-cmd` 完全不可用；`DEVTMPFS` 没开则系统起来后 `/dev` 是空的，串口/块设备全都找不到。这类问题在 Buildroot 侧查不出来，只能回到内核配置。
+**原因很简单**：`# CONFIG_FTRACE is not set` 一挂，`trace-cmd` 就是个摆设；`DEVTMPFS` 不开，系统起来 `/dev` 空空荡荡，串口、块设备一个都找不着。这种毛病在 Buildroot 那边怎么查都查不出来，只能回头找内核配置。
 
-开启 Ftrace：
+开 Ftrace 的步骤：
 
 ```bash
 cd $KERNEL_DIR
@@ -172,16 +172,16 @@ cat /sys/kernel/debug/tracing/available_tracers
 
 ### 2.4 复用 dl 缓存
 
-仓库里已经带了一份完整的下载缓存：`rootfs/sources/dl/`（418 个包目录、906 个文件、约 2.0 GB），随源码一起迁移入库。Buildroot 编译前先查这里，命中就不下载。
+仓库里塞了一份现成的下载缓存：`rootfs/sources/dl/`，418 个包目录、906 个文件、差不多 2.0 GB，跟着源码一起入库。Buildroot 编译前先来这儿翻，有就不下载。
 
 ```bash
 export BR2_DL_DIR=<仓库>/rootfs/sources/dl
 # 或写进 .config：Build options → Download dir
 ```
 
-**为什么**：一次完整编译要下载几十个包，国内网络经常超时；命中缓存能把编译时间从"一小时+"压到 5~10 分钟，也避免 7.1/7.13 那类下载失败。
+**为什么值得折腾这一下**：一次完整编译要下载几十个包，国内网络三天两头超时。命中缓存，编译能从"一小时起步"压到 5~10 分钟，7.1、7.13 那种下载翻车也一并躲开。
 
-**注意**：`dl/` 里没有 `dropbear`、`nano`（SDK 原本用 openssh），本项目选了这两个包，首次编译会去下载，见 7.13。
+**注意**：`dl/` 里偏偏没有 `dropbear` 和 `nano`（SDK 原本用的是 openssh），本项目挑了这两个包，头一次编译还得去下，见 7.13。
 
 ---
 
@@ -189,7 +189,7 @@ export BR2_DL_DIR=<仓库>/rootfs/sources/dl
 
 ### 3.1 获取源码
 
-Buildroot 是"源码发布包"项目，没有板级仓库，源码来自官方下载站。
+Buildroot 走的是"源码发布包"路线，没有板级仓库，源码直接去官网下。它跟 BusyBox 那种"毛坯房，家具自己一件件搬"的路子不同，更像精装房——菜单上勾几样软件包，拎包入住。
 
 官方下载页：<https://buildroot.org/downloads/>
 本项目使用的版本：<https://buildroot.org/downloads/buildroot-2020.02.12.tar.gz>
@@ -213,9 +213,9 @@ cd buildroot-2020.02.12
 
 两种方式二选一；无论用哪种，编译前都要把 `BR2_DL_DIR` 指向仓库缓存 `rootfs/sources/dl/`（见 2.4）。
 
-**为什么选 2020.02.12**：它是 LTS 分支，且与韦东山 SDK 的 `Buildroot_2020.02.x` 同系列，仓库里的 `dl/` 缓存（同样出自该 SDK）可以直接复用。
+**为什么挑 2020.02.12**：一来它是 LTS 分支，二来跟韦东山 SDK 的 `Buildroot_2020.02.x` 同系列，仓库里那份 `dl/` 缓存（也是从那个 SDK 来的）正好能直接吃。
 
-**想直接复现最终配置**：把仓库里的 `rootfs/configs/my_imx6ull_defconfig` 拷进解压后的 `configs/`，执行 `make my_imx6ull_defconfig`，即可跳过 3.3 的逐项修改；本文仍按"从零改起"讲，便于理解每一项的作用。
+**想直接复现最终配置**：把仓库里的 `rootfs/configs/my_imx6ull_defconfig` 拷进解压后的 `configs/`，`make my_imx6ull_defconfig` 一敲，3.3 那堆逐项修改就全跳过了。不过本文还是按"从零改起"讲，不然你不知道每一项在忙什么。
 
 ### 3.2 选择配置起点
 
@@ -223,11 +223,11 @@ cd buildroot-2020.02.12
 make imx6ulevk_defconfig
 ```
 
-**为什么不自建**：ARM 平台的架构选项（CPU 型号、浮点 ABI、NEON）非常细，从零配极易出现"能编译但跑不起来"。`imx6ulevk_defconfig` 是 NXP 官方 i.MX6UL EVK 的配置，i.MX6ULL 与之同架构（Cortex-A7），改起来最省事。
+**为什么不自建**：ARM 的架构选项细得吓人——CPU 型号、浮点 ABI、NEON，一项填错就是"能编译，但跑不起来"。`imx6ulevk_defconfig` 是 NXP 官方 i.MX6UL EVK 的配置，i.MX6ULL 跟它同架构（Cortex-A7），拿它开刀最省事。
 
 ### 3.3 逐项修改
 
-进入 `make menuconfig` 后按下表处理。表中"动作"一列是操作要点，"原因"一列是为什么。
+`make menuconfig` 进去以后，照着下面几张表逐项收拾。每张表都分"动作"和"原因"两列：前者告诉你点哪儿，后者告诉你为什么点。
 
 #### A. 架构（保留不动）
 
@@ -250,7 +250,7 @@ make imx6ulevk_defconfig
 
 #### D. 工具链（Internal → External）
 
-这是最容易出错的一节。
+这一节最容易翻车，慢点看。
 
 | 配置项 | 值 | 原因 |
 |--------|-----|------|
@@ -264,9 +264,9 @@ make imx6ulevk_defconfig
 | `External toolchain C library` | `glibc` | Linaro 工具链用的是 glibc |
 | `Toolchain has C++ support?` | 勾选 | 部分包（如 gdb）需要 |
 
-**为什么必须"外部工具链"**：
-1. 避免 Buildroot 去下载工具链（网络问题，7.1）；
-2. 保证与内核同源（2.2 的铁律）。
+**为什么非得选"外部工具链"**：
+1. 别让 Buildroot 自己去下工具链，下不下来的故事见 7.1；
+2. 保证跟内核同源，就是 2.2 那条铁律。
 
 #### E. System configuration
 
@@ -303,9 +303,9 @@ dropbear 子选项建议：
 [*] optimize for size
 ```
 
-**为什么用 dropbear 而不是 openssh**：体积小一个数量级，BusyBox 环境下足够；`disable reverse DNS lookups` 是因为板子没有 DNS，登录时会卡在反查上。
+**为什么用 dropbear、不用 openssh**：体积差一个数量级，BusyBox 环境下完全够用。`disable reverse DNS lookups` 是为了别让登录卡在反查上——板子压根没有 DNS。
 
-**libgpiod 的坑**：`BR2_PACKAGE_LIBGPIOD` 依赖 `BR2_TOOLCHAIN_HEADERS_AT_LEAST_4_8`，本工具链头文件是 4.6，选不上。退路是用内核自带的 GPIO sysfs 接口（`/sys/class/gpio/`）验证驱动，见 7.7。
+**libgpiod 的坑**：`BR2_PACKAGE_LIBGPIOD` 要 `BR2_TOOLCHAIN_HEADERS_AT_LEAST_4_8`，本工具链头文件才 4.6，灰的，选不上。退路是用内核自带的 GPIO sysfs 接口（`/sys/class/gpio/`）验证驱动，见 7.7。
 
 #### G. 文件系统镜像
 
@@ -316,7 +316,7 @@ dropbear 子选项建议：
 | `additional mke2fs options` | `-O ^64bit,^metadata_csum` | 4.9.88 内核与新版 e2fsprogs 的 `metadata_csum` 不兼容（见 7.11） |
 | tar | 保持默认（自动生成） | NFS 部署用 `rootfs.tar` |
 
-**为什么一定要去掉 `metadata_csum`**：虚拟机上的 `mke2fs` 默认开启该特性，4.9.88 的 ext4 驱动会以"superblock checksum 无效"拒绝挂载，U-Boot 的 `ext4write` 也不支持。表面上"镜像做出来了"，实际板子上根本挂不上。
+**为什么非去掉 `metadata_csum` 不可**：虚拟机上的 `mke2fs` 默认就把这个特性打开了，可 4.9.88 的 ext4 驱动一看校验和不对，直接拒绝挂载，U-Boot 的 `ext4write` 也不认。于是表面上"镜像做出来了"，搬到板子上根本挂不上。
 
 #### H. 后处理脚本（重要）
 
@@ -327,7 +327,7 @@ dropbear 子选项建议：
 
 ### 3.4 配置 Overlay（提示符定制）
 
-Overlay 是"编译完成后覆盖到 `output/target`"的目录，用来放不属于任何软件包的定制文件。
+Overlay 说白了就是个"编译完再盖上去"的目录，最后会被覆盖到 `output/target`，专门放那些不属于任何软件包的定制文件。
 
 ```bash
 cd $BUILDROOT_DIR
@@ -350,22 +350,26 @@ grep ROOTFS_OVERLAY .config
 # BR2_ROOTFS_OVERLAY="board/my_imx6ull/rootfs-overlay"
 ```
 
-**为什么用 `profile.d/ps1.sh` 而不是直接改 `/etc/profile`**：Buildroot 的 `/etc/profile` 里有默认环境变量设置，直接覆盖会丢掉它们；`profile.d/*.sh` 是"追加执行"，更安全。这也是参考仓库的做法（见 7.5）。
+**为什么用 `profile.d/ps1.sh`，不直接改 `/etc/profile`**：Buildroot 的 `/etc/profile` 里有一堆默认环境变量，直接盖掉就把它们弄丢了；`profile.d/*.sh` 是"追加执行"，安全得多。参考仓库也是这么干的（见 7.5）。
 
-**为什么用 Overlay 而不是编完再手改**：手改的东西在 `make clean` 或重新解压后全部丢失；Overlay 是配置的一部分，每次编译自动生效。
+**为什么用 Overlay，不编完再手改**：手改的东西，`make clean` 一下、或者重新解压一次，全没了；Overlay 是配置的一部分，每回编译自动生效。
 
 ### 3.5 保存自定义配置
+
+配置调完，赶紧存一份，别让它白调：
 
 ```bash
 make savedefconfig BR2_DEFCONFIG=configs/my_imx6ull_defconfig
 make show-targets
 ```
 
-`show-targets` 输出里应该能看到 `busybox dropbear i2c-tools ... rootfs-ext2`，**没有 `linux` 和 `uboot`** —— 这是"内核/U-Boot 确实关掉了"的直接证据。
+`show-targets` 的输出里应该能看到 `busybox dropbear i2c-tools ... rootfs-ext2`，唯独**没有 `linux` 和 `uboot`**。这就是"内核和 U-Boot 确实被关掉了"的铁证。
 
-**为什么**：`.config` 会被 `make clean` 删掉；`savedefconfig` 只保留与默认值不同的项，文件小、可入库、可复现。以后一句 `make my_imx6ull_defconfig` 就能回到这个状态。
+**为什么非要存成 defconfig**：`.config` 一遇 `make clean` 就没；`savedefconfig` 只记跟默认值不同的项，文件小、能入库、可复现。以后一句 `make my_imx6ull_defconfig`，就回到今天这个状态。
 
 ### 3.6 编译
+
+该点的都点完了，开编。头一回会慢一些，泡杯茶的工夫：
 
 ```bash
 cd $BUILDROOT_DIR
@@ -388,7 +392,7 @@ cat output/target/etc/profile.d/ps1.sh
 # export PS1='[\u@\h:\w]# '
 ```
 
-**为什么用 `-j$(nproc)`**：Buildroot 按包依赖并行编译，`nproc` 取 CPU 核数；不加 `-j` 是单核串行，耗时差好几倍。注意不要 `-j` 开得比内存能承受的还大，否则会在编译大包时 OOM。
+**为什么加 `-j$(nproc)`**：Buildroot 按包依赖并行编译，`nproc` 拿到的是 CPU 核数；不加 `-j` 就是单核慢慢熬，耗时差好几倍。当然也别把 `-j` 开到内存扛不住的地步，编大包的时候会 OOM 给你看。
 
 ---
 
@@ -396,9 +400,9 @@ cat output/target/etc/profile.d/ps1.sh
 
 ### 4.1 为什么先做 NFS
 
-- rootfs 放在主机目录，**改文件 = 板子重启后生效**，一个 `tar xf` 就完成"重新部署"；
-- 不用反复 `dd` 写 eMMC，速度快、不磨损；
-- 出错时可以直接在主机上改配置再启动，便于定位是 rootfs 问题还是驱动问题。
+- rootfs 搁在主机目录里，**改完文件，板子重启就生效**，一个 `tar xf` 就算"重新部署"；
+- 不用反复 `dd` 写 eMMC，又快又不磨芯片；
+- 出了错，直接在主机上改配置再启动，到底是 rootfs 的毛病还是驱动的毛病，一测就分得清。
 
 ### 4.2 部署 rootfs
 
@@ -408,7 +412,7 @@ sudo rm -rf $NFS_ROOT/*          # 先清空，避免旧文件残留导致"改�
 sudo tar xf $BUILDROOT_DIR/output/images/rootfs.tar -C $NFS_ROOT
 ```
 
-> 每次重新编译后都要重做这一步。NFS 是"共享目录"，不重新解压就还是旧系统。
+> 每回重新编译，这一步都得重来。NFS 是"共享目录"，不解压新的，板子跑的还是旧系统。
 
 配置 NFS 导出（**导出到 `my_rootfs` 本身**，而不是它的父目录）：
 
@@ -425,9 +429,11 @@ showmount -e localhost
 # /home/edison/linux/nfs/my_rootfs *
 ```
 
-**为什么强调"导出到 my_rootfs 本身"**：如果导出父目录而 `nfsroot` 只写到 `nfs`，板子会挂到一个空目录，表现为"内核启动成功但 `No working init found`"或直接 panic。少一层路径，少一个错点（见 7.9）。
+**为什么反复强调"导出到 my_rootfs 本身"**：要是导出的是父目录，`nfsroot` 又只写到 `nfs`，板子就会挂到一个空目录上。表现是"内核启动成功，然后 `No working init found`"，或者干脆给你一个 panic。少一层路径，就少一个错点（见 7.9）。
 
 ### 4.3 U-Boot 启动命令
+
+先手动跑一遍，确认能进系统再说：
 
 ```bash
 setenv ipaddr 192.168.1.6
@@ -447,11 +453,13 @@ bootz 80800000 - 83000000
 | `ip=板卡:主机:网关:掩码::eth0:off` | 内核启动阶段的静态 IP 配置；`off` 表示不自动配置 |
 | `console=ttymxc0,115200` | 与硬件串口一致，必须和 U-Boot 的 `console` 一致 |
 
-**为什么不用 `ifconfig`**：U-Boot 没有这个命令（那是 Linux 的）。U-Boot 的网络靠环境变量 `ipaddr/serverip/netmask/gatewayip`，执行 `tftp` 时自动套用（见 7.10）。
+**为什么不用 `ifconfig`**：U-Boot 里没这命令，那是 Linux 的。U-Boot 的网络全靠环境变量 `ipaddr/serverip/netmask/gatewayip`，敲 `tftp`、`ping` 的时候自动套用（见 7.10）。
 
-**为什么要设 `ip=`**：NFS 挂载发生在内核启动阶段，此时还没有用户态 DHCP 客户端，必须由内核自己配好网卡。
+**为什么非得设 `ip=`**：NFS 挂载发生在内核启动阶段，那会儿用户态的 DHCP 客户端还没生出来，网卡只能让内核自己配。
 
 ### 4.4 验证清单
+
+板子跑起来以后，挨个对一遍：
 
 | 检查点 | 预期 |
 |--------|------|
@@ -464,14 +472,14 @@ bootz 80800000 - 83000000
 
 ### 4.5 固化启动命令（可选）
 
-每次上电都手敲一长串，迟早会敲错。U-Boot 上电会自动执行 `bootcmd`，把命令串塞进去即可：
+每次上电都手敲一长串，敲错是迟早的事。U-Boot 开机自动执行 `bootcmd`，把整串塞进去就一劳永逸：
 
 ```bash
 setenv bootcmd 'setenv ipaddr 192.168.1.6; setenv serverip 192.168.1.7; setenv bootargs console=ttymxc0,115200 root=/dev/nfs rw nfsroot=192.168.1.7:/home/edison/linux/nfs/my_rootfs,v3 ip=192.168.1.6:192.168.1.7:192.168.1.1:255.255.255.0::eth0:off; tftp 80800000 zImage; tftp 83000000 imx6ull-my14x14-emmc.dtb; bootz 80800000 - 83000000'
 saveenv
 ```
 
-**为什么调试期可以先不 `saveenv`**：环境变量保存在 U-Boot 的 env 分区里；后面按 5.2 修改板级头文件并重新烧写 U-Boot 时，`saveenv` 的内容可能被覆盖，反而要重新清理。等启动参数稳定、U-Boot 不再改动之后再固化。
+**为什么调试期可以先不 `saveenv`**：环境变量存在 U-Boot 的 env 分区里。后面按 5.2 改板级头文件、重新烧 U-Boot 时，`saveenv` 存的内容有可能被盖掉，白忙一场。等参数稳定、U-Boot 不再动了，再固化。
 
 ---
 
@@ -491,11 +499,11 @@ mount /dev/mmcblk1p2 /mnt/emmc
 ls /mnt/emmc/boot/
 ```
 
-**为什么先看**：U-Boot 的加载参数（分区号、文件在 `/boot/` 下、ext2load 还是 fatload）全部依赖这个布局；布局确认了，下面 4 处修改才有依据。
+**为什么先看这个**：U-Boot 的加载参数（分区号、文件放 `/boot/` 下、用 `ext2load` 还是 `fatload`）全看这套布局。布局确认了，下面那 4 处改动才有依据。
 
 ### 5.2 修改 U-Boot 启动参数
 
-`include/configs/mx6ull_myboard.h` 中有 4 处与实际不符：
+`include/configs/mx6ull_myboard.h` 里有 4 处跟实际情况对不上：
 
 | 变量 | 原值 | 改为 | 原因 |
 |------|------|------|------|
@@ -522,7 +530,7 @@ make -j$(nproc)
 # 产物 u-boot-dtb.imx
 ```
 
-**为什么不能只改 `bootargs`**：`bootcmd → mmcboot → loadimage/loadfdt` 是一条写死的调用链，`fatload` 对 ext4 分区直接报 `** Unable to read file **`；不换 `ext2load`，内核根本加载不上。
+**为什么光改 `bootargs` 没用**：`bootcmd → mmcboot → loadimage/loadfdt` 是一条写死的调用链，`fatload` 碰上 ext4 分区，直接一句 `** Unable to read file **`。不换成 `ext2load`，内核根本加载不上。
 
 ### 5.3 写入 eMMC
 
@@ -548,7 +556,7 @@ sync
 umount /mnt/emmc
 ```
 
-**为什么用板子上的 `dd` 而不是烧录工具的"更新内核/设备树"**：该工具底层用 U-Boot 的 `ext4write`，2017.03 的 `ext4write` 不支持 `metadata_csum`，会失败（见 7.11）。直接 `dd` + `cp` 绕开这个限制。
+**为什么用板子上敲 `dd`，不用烧录工具的"更新内核/设备树"**：那工具底层走的是 U-Boot 的 `ext4write`，可 2017.03 的 `ext4write` 不认 `metadata_csum`，必然失败（见 7.11）。`dd` 加 `cp`，绕开它。
 
 U-Boot 本身用烧录工具的"更新 Uboot"把 `u-boot-dtb.imx` 写到 eMMC。
 
@@ -569,11 +577,13 @@ my-imx6ull login: root
 [root@my-imx6ull:~]#
 ```
 
-看到 `EXT4-fs ... mounted` 说明分区和文件系统都对；看到提示符说明 init 起来了。
+看见 `EXT4-fs ... mounted`，说明分区和文件系统都对；再看见提示符，init 也就起来了。
 
 ---
 
 ## 6. 阶段五：上板验证
+
+换到 eMMC 启动之后，下面这些挨个过一遍，心里就有底了：
 
 | 项目 | 命令 | 预期 |
 |------|------|------|
@@ -597,7 +607,7 @@ ps | grep dropbear
 
 ## 7. 踩坑记录
 
-下表是速查，详细分析见 7.1~7.14。
+先给张速查表，详细经过在 7.1~7.14。
 
 | # | 问题 | 关键现象 | 处理 |
 |---|------|---------|------|
@@ -618,7 +628,7 @@ ps | grep dropbear
 
 ### 7.1 工具链自动下载失败（证书 + 404）
 
-**现象**：
+**现象**：编译才起步，就卡在下载工具链上，最后甩出一堆：
 
 ```
 >>> toolchain-external-arm-arm 2019.12 Downloading
@@ -628,9 +638,10 @@ ps | grep dropbear
 package/pkg-generic.mk:167: recipe for target '.../.stamp_downloaded' failed
 ```
 
-**原因**：`Toolchain` 选成了官方预置的 ARM 工具链（`toolchain-external-arm-arm`），Buildroot 于是去下载：
-1. `developer.arm.com` 的证书链在旧发行版上校验失败（根证书过期/缺失）；
-2. Buildroot 的备用镜像 `sources.buildroot.net` 上该文件已不存在。
+**原因**：`Toolchain` 那一项选成了官方预置的 ARM 工具链（`toolchain-external-arm-arm`），Buildroot 二话不说就去下载，结果：
+
+1. `developer.arm.com` 的证书链在旧发行版上校验不过（根证书过期或者干脆没有）；
+2. Buildroot 的备用镜像 `sources.buildroot.net` 上，这个文件也早没了。
 
 **处理**（三选一，推荐第一种）：
 
@@ -638,23 +649,24 @@ package/pkg-generic.mk:167: recipe for target '.../.stamp_downloaded' failed
 2. 手动下载 `gcc-arm-9.2-2019.12-x86_64-arm-none-linux-gnueabihf.tar.xz`，放到 `dl/toolchain-external-arm-arm/` 下，重跑 `make`。
 3. 临时给 wget 加 `--no-check-certificate`（改 `Config.in` 里的 `BR2_WGET` 默认值）—— 不推荐，属于降低安全校验的临时手段。
 
-**结论**：只要本机已有工具链，就永远不要让 Buildroot 去下载工具链。
+**结论**：本机已经有工具链了，就别让 Buildroot 去下载，一次都别。
 
 ### 7.2 找不到 `Download toolchain automatically`
 
 **现象**：`Toolchain` 菜单里只有 `Toolchain to be downloaded and installed` 和 `Pre-installed toolchain` 两项，找不到教程里说的 `Download toolchain automatically`。
 
-**原因**：这个选项存在于 `toolchain-external-custom` 分支下的 `Toolchain origin` 里，名字在不同版本/不同教程里不一致：
-- Buildroot 2020.02 的写法是 **`Pre-installed toolchain`** / `Toolchain to be downloaded and installed`；
-- 某些旧教程写的是 `Custom toolchain` + `Download toolchain automatically`。
+**原因**：这选项藏在 `toolchain-external-custom` 分支的 `Toolchain origin` 里，而且不同版本、不同教程叫法还不统一：
+
+- Buildroot 2020.02 的写法是 **`Pre-installed toolchain`** 和 `Toolchain to be downloaded and installed`；
+- 某些旧教程写的是 `Custom toolchain` 加 `Download toolchain automatically`。
 
 **处理**：`Toolchain` 选 `Custom external toolchain` → `Toolchain origin` 选 **`Pre-installed toolchain`**，此时会出现 `Toolchain path` / `Toolchain prefix` 输入框。
 
-**结论**：菜单名对不上时，先看当前 Buildroot 版本的 `Config.in`，别硬套教程。
+**结论**：菜单名对不上，先翻当前版本 Buildroot 的 `Config.in`，别硬套教程——写教程的人，用的不是你这个版本。
 
 ### 7.3 U-Boot 编译报 `Your GCC is older than 6.0`
 
-**现象**：
+**现象**：别的包都好好的，编到 U-Boot 这一步突然翻脸：
 
 ```
 *** Your GCC is older than 6.0 and is not supported
@@ -666,11 +678,11 @@ package/pkg-generic.mk:266: recipe for target '.../uboot-2018.07/.stamp_built' f
 
 **处理**（三选一）：
 
-1. **关闭 Buildroot 的 U-Boot**（本项目做法，推荐）：自己已经移植了 2017.03 的 U-Boot，`Bootloaders` 里取消 `U-Boot` 即可。顺带省掉一次重复编译。
+1. **关闭 Buildroot 的 U-Boot**（本项目做法，推荐）：2017.03 的 U-Boot 咱自己已经移植好了，`Bootloaders` 里把 `U-Boot` 一取消就行，还省得再重编一遍。
 2. 换 GCC 6.x/7.x 工具链，并**同时重编内核**（否则 7.8 的坑）。
 3. 改 U-Boot 的 `checkgcc6` 规则去掉版本检查 —— 不推荐，编译出来的 U-Boot 未经验证。
 
-**结论**：Buildroot 不该负责你已经自己维护的组件；能关就关。
+**结论**：自己维护的组件，就别让 Buildroot 再管一遍，能关就关。
 
 ### 7.4 编译尾部报找不到 zImage
 
@@ -686,25 +698,26 @@ package/pkg-generic.mk:266: recipe for target '.../uboot-2018.07/.stamp_built' f
 
 **处理**：`System configuration` → 清空 `Custom scripts to run after creating filesystem images`（或直接删掉 `BR2_ROOTFS_POST_IMAGE_SCRIPT` 那一行），同时取消 `genimage`、`dosfstools`、`mtools`。重新 `make`。
 
-**结论**：**"rootfs 编译成功"和"整包打包成功"是两件事**。本项目只要 `rootfs.tar` / `rootfs.ext2`，整包打包失败不影响使用。
+**结论**：**"rootfs 编出来了"和"整包打好了"是两码事**。本项目只要 `rootfs.tar` 和 `rootfs.ext2`，整包那一步失败，天塌不下来。
 
 ### 7.5 overlay 路径该按哪套来
 
 **现象**：教程给的 `board/freescale/imx6ull_myboard/overlay/etc/profile` 与参考仓库的 `board/my_imx6ull/rootfs-overlay/etc/profile.d/ps1.sh` 不一致。
 
-**原因**：两者都对，只是命名习惯不同：
+**原因**：两家都没错，纯粹是起名习惯不同：
+
 - `board/freescale/<board>/overlay/` 是 Buildroot 官方示例的规范写法；
-- `board/my_imx6ull/rootfs-overlay/` 是仓库作者自定路径，**Buildroot 不限制 overlay 目录的名字和位置**，只要 menuconfig 里填的路径与实际一致。
+- `board/my_imx6ull/rootfs-overlay/` 是仓库作者自己定的路径。**Buildroot 不限制 overlay 目录叫什么、放哪儿**，只要 menuconfig 里填的跟实际对得上。
 
 **处理**：跟随参考仓库（`board/my_imx6ull/rootfs-overlay`），并采用 `profile.d/ps1.sh` 的追加方式，避免覆盖默认 `/etc/profile`。
 
-**结论**：路径自由，但"menuconfig 里的值"和"实际目录"必须严格一致；复制粘贴时最容易在这里出错。
+**结论**：路径随你定，但"menuconfig 里填的"和"硬盘上真有的"必须一个字不差。复制粘贴的时候，这里最容易翻车。
 
 ### 7.6 `/dev` management 选错
 
 **现象**：系统起来后 `/dev` 下设备节点很少或没有，串口/块设备找不到。
 
-**原因**：`/dev management` 选了 `Dynamic using devtmpfs only`，没有 mdev。纯 devtmpfs 只能提供内核自动创建的那部分节点，热插拔和权限管理都缺失。
+**原因**：`/dev management` 选成了 `Dynamic using devtmpfs only`，没带 mdev。纯 devtmpfs 只能提供内核自动建的那部分节点，热插拔和权限管理一概没有。
 
 **处理**：改为 `Dynamic using devtmpfs + mdev`（对应 `BR2_ROOTFS_DEVICE_CREATION_DYNAMIC_MDEV=y`）。
 
@@ -724,27 +737,27 @@ ls /sys/class/gpio/gpio25/
 cat /sys/class/gpio/gpio25/value
 ```
 
-**结论**：工具链头文件版本决定了部分包的可用性；这不是"配置错了"，是环境限制。
+**结论**：工具链头文件的版本，直接决定了一部分包能不能用。这不算"配错了"，是环境就这条件。
 
 ### 7.8 内核与 rootfs 工具链不一致
 
-**现象**：内核能启动，初始化阶段报：
+**现象**：内核能启动，跑到初始化阶段，屏幕一黑，只剩下一行：
 
 ```
 Kernel panic - not syncing: No working init found.
 ```
 
-**原因**：rootfs 里的 `/sbin/init`（BusyBox）或 glibc 是用另一套工具链编的，ABI/动态库版本与内核预期不符，`execve` 失败。
+**原因**：rootfs 里的 `/sbin/init`（BusyBox）或者 glibc，是另一套工具链编出来的。ABI 和动态库版本跟内核的预期对不上，`execve` 一调就失败。
 
 **处理**：确认内核、U-Boot、rootfs 三者使用同一套 `gcc-linaro-*`；如果之前用 6.2.1 编过内核，就用同一路径的 6.2.1 重编内核，或把 rootfs 改回 4.9.4。
 
-**结论**：工具链一致性比"版本越新越好"重要得多。
+**结论**：工具链一致，比"版本越新越好"重要得多。
 
 ### 7.9 NFS 挂载到空目录
 
 **现象**：内核日志显示 NFS 挂载成功，但接着找不到 init 或进入 panic。
 
-**原因**：`/etc/exports` 导出的是 `/home/edison/linux/nfs`（父目录），而 rootfs 解压在 `.../nfs/my_rootfs`；`nfsroot` 只写到 `nfs`，于是挂到的是空目录。
+**原因**：`/etc/exports` 导出的是 `/home/edison/linux/nfs`（父目录），可 rootfs 解压在 `.../nfs/my_rootfs`；`nfsroot` 又只写到 `nfs`，于是板子挂上的其实是个空目录。
 
 **处理**：`/etc/exports` 直接写 `my_rootfs` 的完整路径（本项目做法），或把 `nfsroot` 补全到 `my_rootfs`。改完执行：
 
@@ -753,7 +766,7 @@ sudo exportfs -ra
 sudo systemctl restart nfs-kernel-server
 ```
 
-**结论**：`exports` 的路径、`nfsroot` 的路径、实际解压目录，三者必须是同一个。
+**结论**：`exports` 的路径、`nfsroot` 的路径、实际解压的目录，三者必须是同一个。
 
 ### 7.10 U-Boot 没有 `ifconfig`
 
@@ -764,7 +777,7 @@ sudo systemctl restart nfs-kernel-server
 Unknown command 'ifconfig' - try 'help'
 ```
 
-**原因**：`ifconfig` 是 Linux 用户态命令，U-Boot 里不存在（除非特意启用了老式 `CONFIG_CMD_NET` 的 `ifconfig` 别名，标准配置没有）。
+**原因**：`ifconfig` 是 Linux 用户态的命令，U-Boot 里没有（除非特意启用了老式 `CONFIG_CMD_NET` 的 `ifconfig` 别名，标准配置里没这项）。
 
 **处理**：用环境变量：
 
@@ -776,7 +789,7 @@ setenv gatewayip 192.168.1.1
 ping 192.168.1.7
 ```
 
-**结论**：U-Boot 网络是"变量 + 命令"模型，执行 `tftp`/`ping` 时自动套用。
+**结论**：U-Boot 的网络是"变量 + 命令"的路子，敲 `tftp`、`ping` 的时候自己套用。
 
 ### 7.11 eMMC 挂载失败：`invalid superblock checksum`
 
@@ -787,7 +800,7 @@ EXT4-fs (mmcblk1p2): VFS: Found ext4 filesystem with invalid superblock checksum
 EXT2-fs (mmcblk1p2): error: couldn't mount because of unsupported optional features (244)
 ```
 
-烧录工具"更新内核/设备树"时：download 成功，`ext4write` 失败。
+要是用烧录工具点"更新内核/设备树"，download 会显示成功，`ext4write` 却悄悄失败。
 
 **原因**：主机上的 `e2fsprogs` 较新，`mke2fs` 默认开启 `metadata_csum` 特性；4.9.88 内核的 ext4 驱动和 U-Boot 2017.03 的 `ext4write` 都不支持该特性。
 
@@ -799,13 +812,13 @@ EXT2-fs (mmcblk1p2): error: couldn't mount because of unsupported optional featu
 
 重新 `make`，用新的 `rootfs.ext2` 重新 `dd`。
 
-**结论**："镜像生成成功"不等于"板子能挂载"。老内核 + 新 e2fsprogs 是经典组合坑。
+**结论**："镜像生成成功"不等于"板子挂得上"。老内核配新 e2fsprogs，是一对经典冤家。
 
 ### 7.12 SSH 密码错误
 
-**现象**：`ssh root@192.168.1.6`，`root`、`123456` 都提示密码错误；但串口能正常登录。
+**现象**：`ssh root@192.168.1.6`，`root`、`123456` 挨个试了一遍，全是密码错误；可串口那边，同样的账号密码一登就进。
 
-**原因（常见）**：`System configuration` 里填了 `Root password`，但没勾选 `Enable root login with password`，或配置没重新生效，导致系统里 root 实际是**空密码**；SSH 默认拒绝空密码登录。
+**原因（常见）**：`System configuration` 里填了 `Root password`，却没勾 `Enable root login with password`；或者配置压根没重新生效。这样一来，系统里 root 实际是**空密码**，而 SSH 默认拒绝空密码登录。
 
 **处理**：
 
@@ -832,7 +845,7 @@ cat /etc/shadow | grep root
 
 **现象**：编译停在 `Downloading` 很久，或某包下载失败。
 
-**原因**：仓库自带的 `rootfs/sources/dl/` 中确实没有 `dropbear`、`nano`（韦东山 SDK 的 Buildroot 用 openssh，不编这两个包）。
+**原因**：仓库自带的 `rootfs/sources/dl/` 里，确实没有 `dropbear` 和 `nano`——韦东山 SDK 的 Buildroot 用的是 openssh，压根不编这两个包。
 
 **处理**：按 `package/*/*.mk` 里的 `_SITE` 手动下载，放入 `$DL_DIR/<pkg>/`（即 `rootfs/sources/dl/<pkg>/`）：
 
@@ -842,23 +855,23 @@ grep -E 'DROPBEAR_VERSION|DROPBEAR_SITE' package/dropbear/dropbear.mk
 grep -E 'NANO_VERSION|NANO_SITE' package/nano/nano.mk
 ```
 
-**结论**：`dl/` 是纯缓存，可以随时手工补文件；补对文件名（含版本号）即可被识别。
+**结论**：`dl/` 就是个纯缓存，随时能手工往里塞文件。文件名（含版本号）对得上，它照样认。
 
 ### 7.14 网卡名从 eth2 变成 eth0
 
 **现象**：U-Boot 里写 `eth2` 的启动参数，在新 rootfs 下不通；`ifconfig -a` 只有 `eth0`。
 
-**原因**：原厂 rootfs 带 udev 的持久化命名规则（按 MAC/PCI 排序把网卡重命名为 eth2）；本项目用 BusyBox + mdev，没有这套规则，网卡按内核默认顺序命名 `eth0/eth1`。
+**原因**：原厂 rootfs 带着 udev 的持久化命名规则，按 MAC/PCI 排序把网卡改名叫 `eth2`；本项目用 BusyBox + mdev，没这套规矩，网卡就按内核默认顺序叫 `eth0`、`eth1`。
 
 **处理**：`bootargs` 里的 `ip=...:eth0:off` 和 `nfsroot` 相关的网卡名统一改成 `eth0`。
 
-**结论**：换 rootfs 后网卡名可能变化，这不是驱动问题。
+**结论**：换了 rootfs，网卡名真有可能变。这跟驱动没半毛钱关系，别往那儿查。
 
 ---
 
 ## 8. 复现清单
 
-按顺序打勾即可复现整套系统。
+照着顺序往下打勾，就能把整套系统复现一遍。
 
 - [ ] 确认工具链路径、版本、内核头文件版本（2.2）
 - [ ] 内核 defconfig 补齐 DEVTMPFS / EXT4 / FTRACE（2.3）
@@ -924,9 +937,11 @@ cat /etc/shadow | grep root
 
 ### C. 关键结论
 
-1. **工具链三件套同源**（U-Boot、Kernel、rootfs），否则 init 起不来。
-2. **Buildroot 只做用户态**：内核、U-Boot 自己维护，能关就关。
-3. **rootfs 编译成功 ≠ 整包成功**：post-image 失败不影响产物。
+1. **工具链三件套得同源**（U-Boot、Kernel、rootfs），不然 init 起不来。
+2. **Buildroot 只管用户态**：内核、U-Boot 自己维护，能关就关。
+3. **rootfs 编出来了 ≠ 整包成功了**：post-image 那步失败，不影响产物。
 4. **老内核配新 e2fsprogs**：`metadata_csum` 必须关。
-5. **先 NFS 后 eMMC**：调试效率差别巨大。
-6. **配置错误会以"启动失败"的形式出现**，排查顺序：内核配置 → 工具链一致性 → rootfs 内容 → U-Boot 参数。
+5. **先 NFS 后 eMMC**：调试效率差得不是一点半点。
+6. **配置错误会以"启动失败"的形式出现**，排查就按这个顺序来：内核配置、工具链一致性、rootfs 内容、U-Boot 参数。
+
+> 题外话：这套流程头一回走，多半要在第 7 章里挨个儿撞一遍。撞完回头看，每一步其实都合情合理——rootfs 这活儿没什么高深理论，拼的是耐心，是对报错的那点儿敏感，还有一遍遍重来的劲头。别怕返工，这套流程就是靠一遍遍重来喂熟的。
